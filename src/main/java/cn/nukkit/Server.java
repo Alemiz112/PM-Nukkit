@@ -332,8 +332,6 @@ public class Server {
 
         this.scheduler = new ServerScheduler();
 
-        this.batchingHelper = new BatchingHelper();
-
         if (this.getPropertyBoolean("enable-rcon", false)) {
             try {
                 this.rcon = new RCON(this, this.getPropertyString("rcon.password", ""), (!this.getIp().isEmpty()) ? this.getIp() : "0.0.0.0", this.getPropertyInt("rcon.port", this.getPort()));

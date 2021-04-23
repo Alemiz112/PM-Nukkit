@@ -33,6 +33,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.ProtocolException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -289,18 +290,24 @@ public class RakNetInterface implements RakNetServerListener, AdvancedSourceInte
                 return;
             }
 
-            // TODO: decode batch and add packets to inbound
+            byte[] packetBuffer = new byte[buffer.readableBytes()];
+            buffer.readBytes(packetBuffer);
 
-            DataPacket batchPacket = RakNetInterface.this.network.getPacket(ProtocolInfo.BATCH_PACKET);
-            if (batchPacket == null) {
+            // Check if player was already created
+            if (this.player == null) {
+                BatchPacket batchPacket = new BatchPacket();
+                batchPacket.setBuffer(packetBuffer);
+                batchPacket.decode();
+                this.inbound.offer(batchPacket);
                 return;
             }
 
-            byte[] packetBuffer = new byte[buffer.readableBytes()];
-            buffer.readBytes(packetBuffer);
-            batchPacket.setBuffer(packetBuffer);
-            batchPacket.decode();
-            this.inbound.offer(batchPacket);
+            try {
+                RakNetInterface.this.network.processBatch(packetBuffer, this.inbound, this.raknet.protocol, this.player.protocol);
+            } catch (ProtocolException e) {
+                this.disconnect("Sent malformed packet");
+                log.error("Unable to process batch packet", e);
+            }
         }
 
         @Override

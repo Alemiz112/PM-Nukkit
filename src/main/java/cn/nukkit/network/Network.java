@@ -9,16 +9,17 @@ import cn.nukkit.utils.Utils;
 import cn.nukkit.utils.VarInt;
 import cn.nukkit.utils.Zlib;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
+import io.netty.buffer.Unpooled;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import lombok.extern.log4j.Log4j2;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.net.ProtocolException;
+import java.util.*;
 
 /**
  * @author MagicDroidX
@@ -143,48 +144,72 @@ public class Network {
     }
 
     public void processBatch(BatchPacket packet, Player player) {
+        List<DataPacket> packets = new ObjectArrayList<>();
+        try {
+            processBatch(packet.payload, packets, player.raknetProtocol, player.protocol);
+            packets.forEach(player::handleDataPacket);
+        } catch (ProtocolException e) {
+            player.close("", e.getMessage());
+            log.error("Unable to process player packets ", e);
+        }
+    }
+
+    public void processBatch(byte[] payload, Collection<DataPacket> packets, int raknetVersion, int protocolVersion) throws ProtocolException {
         byte[] data;
         try {
-            if (player.raknetProtocol >= 10) {
-                data = Zlib.inflateRaw(packet.payload, 2097152); // 2 * 1024 * 1024
+            if (raknetVersion >= 10) {
+                data = Zlib.inflateRaw(payload, 2097152); // 2 * 1024 * 1024
             } else {
-                data = Zlib.inflate(packet.payload, 2097152);
+                data = Zlib.inflate(payload, 2097152);
             }
         } catch (Exception e) {
+            log.debug("Exception while inflating batch packet", e);
             return;
         }
 
-        int len = data.length;
         BinaryStream stream = new BinaryStream(data);
         try {
-            List<DataPacket> packets = new ArrayList<>();
             int count = 0;
-            while (stream.offset < len) {
+            while (!stream.feof()) {
                 count++;
-                if (count > 780) {
-                    player.close("", "Illegal Batch Packet");
+                if (count > 1000) {
+                    throw new ProtocolException("Illegal batch with " + count + " packets");
+                }
+
+                byte[] buf = stream.getByteArray();
+                ByteArrayInputStream bais = new ByteArrayInputStream(buf);
+                int header = (int) VarInt.readUnsignedVarInt(bais);
+
+                // | Client ID | Sender ID | Packet ID |
+                // |   2 bits  |   2 bits  |  10 bits  |
+                int packetId = header & 0x3ff;
+
+                DataPacket packet = this.getPacket(packetId);
+                if (packet == null) {
+                    log.debug("Received unknown packet with ID: {}", Integer.toHexString(packetId));
                     return;
                 }
-                byte[] buf = stream.getByteArray();
 
-                DataPacket pk = this.getPacketFromBuffer(player.protocol, buf);
+                packet.protocol = protocolVersion;
 
-                if (pk != null) {
-                    pk.protocol = player.protocol;
-
-                    if (player.raknetProtocol > 8) {
-                        pk.decode();
-                    } else { // version < 1.6
-                        pk.setBuffer(buf, 3);
-                        pk.decode();
-                    }
-
-                    packets.add(pk);
+                if (protocolVersion >= 388) {
+                    packet.setBuffer(buf, buf.length - bais.available());
+                } else {
+                    packet.setBuffer(buf, raknetVersion <= 8 ? 3 : 1);
                 }
+
+                try {
+                    packet.decode();
+                } catch (Exception e) {
+                    if (log.isTraceEnabled()) {
+                        log.trace("Dumping Packet\n{}", ByteBufUtil.prettyHexDump(Unpooled.wrappedBuffer(buf)));
+                    }
+                    log.error("Unable to decode packet", e);
+                    throw new IllegalStateException("Unable to decode " + packet.getClass().getSimpleName());
+                }
+
+                packets.add(packet);
             }
-
-            processPackets(player, packets);
-
         } catch (Exception e) {
             if (log.isDebugEnabled()) {
                 log.debug("Error whilst decoding batch packet", e);
@@ -192,32 +217,8 @@ public class Network {
         }
     }
 
-    /**
-     * Process packets obtained from batch packets
-     * Required to perform additional analyses and filter unnecessary packets
-     *
-     * @param packets packets
-     */
-    public void processPackets(Player player, List<DataPacket> packets) {
-        if (packets.isEmpty()) return;
-        packets.forEach(player::handleDataPacket);
-    }
-
-    private DataPacket getPacketFromBuffer(int protocol, byte[] buffer) throws IOException {
-        ByteArrayInputStream stream = new ByteArrayInputStream(buffer);
-        DataPacket pk = this.getPacket((byte) VarInt.readUnsignedVarInt(stream));
-        if (pk != null) {
-            if (protocol >= 388) {
-                pk.setBuffer(buffer, buffer.length - stream.available());
-            } else {
-                pk.setBuffer(buffer, protocol <= 274 ? 3 : 1);
-            }
-        }
-        return pk;
-    }
-
-    public DataPacket getPacket(byte id) {
-        Class<? extends DataPacket> clazz = this.packetPool[id & 0xff];
+    public DataPacket getPacket(int id) {
+        Class<? extends DataPacket> clazz = this.packetPool[id];
         if (clazz != null) {
             try {
                 return clazz.newInstance();

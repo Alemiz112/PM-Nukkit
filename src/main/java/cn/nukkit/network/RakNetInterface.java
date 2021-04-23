@@ -101,7 +101,7 @@ public class RakNetInterface implements RakNetServerListener, AdvancedSourceInte
             try {
                 Constructor<? extends Player> constructor = clazz.getConstructor(SourceInterface.class, Long.class, InetSocketAddress.class);
                 Player player = constructor.newInstance(this, ev.getClientId(), ev.getSocketAddress());
-                player.raknetProtocol = session.raknet.protocol;
+                player.raknetProtocol = session.raknet.getProtocolVersion();
                 session.player = player;
                 this.server.addPlayer(address, player);
                 this.sessions.put(address, session);
@@ -303,7 +303,7 @@ public class RakNetInterface implements RakNetServerListener, AdvancedSourceInte
             }
 
             try {
-                RakNetInterface.this.network.processBatch(packetBuffer, this.inbound, this.raknet.protocol, this.player.protocol);
+                RakNetInterface.this.network.processBatch(packetBuffer, this.inbound, this.raknet.getProtocolVersion(), this.player.protocol);
             } catch (ProtocolException e) {
                 this.disconnect("Sent malformed packet");
                 log.error("Unable to process batch packet", e);
@@ -346,7 +346,7 @@ public class RakNetInterface implements RakNetServerListener, AdvancedSourceInte
             }
 
             try {
-                if (this.raknet.protocol >= 10) {
+                if (this.raknet.getProtocolVersion() >= 10) {
                     this.sendPacket(Zlib.deflateRaw(batched.getBuffer(), network.getServer().networkCompressionLevel));
                 } else {
                     this.sendPacket(Zlib.deflate(batched.getBuffer(), network.getServer().networkCompressionLevel));

@@ -179,8 +179,8 @@ public class Player extends EntityHuman implements CommandSender, InventoryHolde
     protected String iusername;
     protected String displayName;
 
-    public int protocol = 999;
-    public int raknetProtocol;
+    public volatile int protocol = 999;
+    public volatile int raknetProtocol;
     protected String version;
 
     protected int startAction = -1;
@@ -1046,8 +1046,6 @@ public class Player extends EntityHuman implements CommandSender, InventoryHolde
         if (!this.connected) {
             return false;
         }
-
-        packet.protocol = this.protocol;
 
         try (Timing ignore = Timings.getSendDataPacketTiming(packet)) {
             if (server.callDataPkEv) {

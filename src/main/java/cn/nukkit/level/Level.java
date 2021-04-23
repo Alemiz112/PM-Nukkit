@@ -503,11 +503,7 @@ public class Level implements ChunkManager, Metadatable {
             }
         } else {
             if (packets != null) {
-                if (packets.length == 1) {
-                    Server.broadcastPacket(players, packets[0]);
-                } else {
-                    this.server.batchPackets(players, packets, false);
-                }
+                Server.broadcastPackets(players, packets);
             }
         }
     }
@@ -575,7 +571,7 @@ public class Level implements ChunkManager, Metadatable {
         if (players == null) {
             this.addChunkPacket(pos.getFloorX() >> 4, pos.getFloorZ() >> 4, pk);
         } else {
-            this.server.batchPackets(players, new DataPacket[]{pk}, false);
+            Server.broadcastPacket(players, pk);
         }
     }
 
@@ -1139,7 +1135,7 @@ public class Level implements ChunkManager, Metadatable {
                     throw new IllegalStateException("Unable to create BlockUpdatePacket at (" + b.x + ", " + b.y + ", " + b.z + ") in " + getName() + " for players with protocol " +protocolId);
                 }
 
-                this.server.batchPackets(players.toArray(new Player[0]), new DataPacket[]{packet});
+                Server.broadcastPacket(players, packet);
             }
         }
     }

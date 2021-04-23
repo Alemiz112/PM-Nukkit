@@ -71,7 +71,8 @@ public class RakNetInterface implements RakNetServerListener, AdvancedSourceInte
 
     public RakNetInterface(Server server) {
         this.server = server;
-        this.raknet = new RakNetServer(new InetSocketAddress(Strings.isNullOrEmpty(this.server.getIp()) ? "0.0.0.0" : this.server.getIp(), this.server.getPort()), Runtime.getRuntime().availableProcessors());
+        InetSocketAddress bindAddress = new InetSocketAddress(Strings.isNullOrEmpty(this.server.getIp()) ? "0.0.0.0" : this.server.getIp(), this.server.getPort());
+        this.raknet = new RakNetServer(bindAddress, Runtime.getRuntime().availableProcessors());
         this.raknet.bind().join();
         this.raknet.setListener(this);
 
@@ -221,13 +222,16 @@ public class RakNetInterface implements RakNetServerListener, AdvancedSourceInte
             return null;
         }
 
-        if (packet.protocol != player.protocol) {
-            packet.protocol = player.protocol;
-            log.warn("Correcting player protocol from "+packet.protocol+" to "+player.protocol+"!");
+        DataPacket dataPacket;
+        if (packet.isEncoded && packet.protocol == player.protocol) {
+            dataPacket = packet;
+        } else {
+            dataPacket = packet.clone();
+            dataPacket.protocol = player.protocol;
+            dataPacket.tryEncode();
         }
 
-        packet.tryEncode();
-        session.outbound.offer(packet);
+        session.outbound.offer(dataPacket);
         return null;
     }
 
@@ -265,7 +269,7 @@ public class RakNetInterface implements RakNetServerListener, AdvancedSourceInte
     private class NukkitRakNetSession implements RakNetSessionListener {
         private final RakNetServerSession raknet;
         private final Queue<DataPacket> inbound = PlatformDependent.newSpscQueue();
-        private final Queue<DataPacket> outbound = PlatformDependent.newSpscQueue();
+        private final Queue<DataPacket> outbound = PlatformDependent.newMpscQueue();
         private String disconnectReason = null;
         private Player player;
 
